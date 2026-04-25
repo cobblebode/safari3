@@ -144,7 +144,7 @@ public class CobbleBodeSafariEntry implements ModInitializer {
         portalClass.getMethod("setOriginPos", BlockPos.class).invoke(portal, pos);
         portalClass.getMethod("setOriginDimension", net.minecraft.registry.RegistryKey.class).invoke(portal, player.getWorld().getRegistryKey());
         portalClass.getMethod("setRandomDestinationMode", boolean.class).invoke(portal, true);
-        portalClass.getMethod("setDungeonDimensionId", String.class).invoke(portal, null);
+        portalClass.getMethod("setDungeonDimensionId", String.class).invoke(portal, (Object) null);
         portalClass.getMethod("setSpawnTick", long.class).invoke(portal, player.getServerWorld().getTime());
 
         return portal;
