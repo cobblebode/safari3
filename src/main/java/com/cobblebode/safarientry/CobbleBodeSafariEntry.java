@@ -23,8 +23,13 @@ import java.util.UUID;
 
 public class CobbleBodeSafariEntry implements ModInitializer {
     private static final Identifier TICKET_ID = Identifier.of("cobblesafari", "ticket_dungeon");
-    private static final int DUNGEON_SECONDS = 1800;
+
+    // 15 minutos
+    private static final int DUNGEON_SECONDS = 900;
     private static final int DUNGEON_TICKS = DUNGEON_SECONDS * 20;
+
+    // Portal oculto fora da área normal
+    private static final BlockPos HIDDEN_PORTAL_POS = new BlockPos(0, -60, 0);
 
     @Override
     public void onInitialize() {
@@ -78,7 +83,7 @@ public class CobbleBodeSafariEntry implements ModInitializer {
         }
 
         try {
-            Object portal = createTemporaryRandomDungeonPortal(player);
+            Object portal = createHiddenPortal(player);
 
             Class<?> handlerClass = Class.forName("maxigregrze.cobblesafari.dungeon.DungeonTeleportHandler");
             Class<?> portalClass = Class.forName("maxigregrze.cobblesafari.block.dungeon.DungeonPortalBlockEntity");
@@ -89,6 +94,7 @@ public class CobbleBodeSafariEntry implements ModInitializer {
             Object validation = validate.invoke(null, player, portal);
 
             if (validation == null) {
+                removeHiddenPortal(player);
                 giveItem(player, TICKET_ID, 1);
                 player.sendMessage(Text.literal("§cNão foi possível validar a entrada da Mina Safari. O ticket foi devolvido."), false);
                 return false;
@@ -106,6 +112,7 @@ public class CobbleBodeSafariEntry implements ModInitializer {
             Object prep = generateAndPrepare.invoke(null, player, portal, forcedValidation);
 
             if (prep == null) {
+                removeHiddenPortal(player);
                 giveItem(player, TICKET_ID, 1);
                 player.sendMessage(Text.literal("§cNão foi possível gerar a Mina Safari. O ticket foi devolvido."), false);
                 return false;
@@ -122,10 +129,15 @@ public class CobbleBodeSafariEntry implements ModInitializer {
 
             execute.invoke(null, player, portal, forcedPrep);
 
-            player.sendMessage(Text.literal("§aTicket consumido! Você entrou na Mina Safari por 30 minutos."), false);
+            // NÃO remover o portal agora.
+            // O CobbleSafari precisa dele registrado para não evacuar o player.
+            // removeHiddenPortal(player);
+
+            player.sendMessage(Text.literal("§aTicket consumido! Você entrou na Mina Safari por 15 minutos."), false);
             return true;
 
         } catch (Throwable t) {
+            removeHiddenPortal(player);
             giveItem(player, TICKET_ID, 1);
             player.sendMessage(Text.literal("§cErro ao abrir a Mina Safari. O ticket foi devolvido."), false);
             player.sendMessage(Text.literal("§7Debug: " + t.getClass().getSimpleName() + " - " + safeMsg(t)), false);
@@ -133,25 +145,37 @@ public class CobbleBodeSafariEntry implements ModInitializer {
         }
     }
 
-    private static Object createTemporaryRandomDungeonPortal(ServerPlayerEntity player) throws Exception {
+    private static Object createHiddenPortal(ServerPlayerEntity player) throws Exception {
         Class<?> portalClass = Class.forName("maxigregrze.cobblesafari.block.dungeon.DungeonPortalBlockEntity");
 
-        BlockPos pos = player.getBlockPos();
+        var world = player.getServerWorld();
 
         Block portalBlock = Registries.BLOCK.get(Identifier.of("cobblesafari", "dungeon_portal"));
         BlockState state = portalBlock.getDefaultState();
 
-        Constructor<?> constructor = portalClass.getConstructor(BlockPos.class, BlockState.class);
-        Object portal = constructor.newInstance(pos, state);
+        world.setBlockState(HIDDEN_PORTAL_POS, state, Block.NOTIFY_ALL);
+
+        Object portal = world.getBlockEntity(HIDDEN_PORTAL_POS);
+
+        if (portal == null || !portalClass.isInstance(portal)) {
+            throw new IllegalStateException("Falha ao criar portal oculto do CobbleSafari");
+        }
 
         portalClass.getMethod("setPortalId", UUID.class).invoke(portal, UUID.randomUUID());
-        portalClass.getMethod("setOriginPos", BlockPos.class).invoke(portal, pos);
+        portalClass.getMethod("setOriginPos", BlockPos.class).invoke(portal, player.getBlockPos());
         portalClass.getMethod("setOriginDimension", net.minecraft.registry.RegistryKey.class).invoke(portal, player.getWorld().getRegistryKey());
         portalClass.getMethod("setRandomDestinationMode", boolean.class).invoke(portal, true);
         portalClass.getMethod("setDungeonDimensionId", String.class).invoke(portal, (Object) null);
-        portalClass.getMethod("setSpawnTick", long.class).invoke(portal, player.getServerWorld().getTime());
+        portalClass.getMethod("setSpawnTick", long.class).invoke(portal, world.getTime());
 
         return portal;
+    }
+
+    private static void removeHiddenPortal(ServerPlayerEntity player) {
+        try {
+            player.getServerWorld().breakBlock(HIDDEN_PORTAL_POS, false);
+        } catch (Throwable ignored) {
+        }
     }
 
     private static Object forceValidationTimer(Object validation, Class<?> validationClass) throws Exception {
