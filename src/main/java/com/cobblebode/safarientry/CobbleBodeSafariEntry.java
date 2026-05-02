@@ -79,7 +79,7 @@ public class CobbleBodeSafariEntry implements ModInitializer {
         }
 
         try {
-            Object portal = createTemporaryRandomDungeonPortal(player);
+            Object portal = createRealRandomDungeonPortal(player);
 
             Class<?> handlerClass = Class.forName("maxigregrze.cobblesafari.dungeon.DungeonTeleportHandler");
             Class<?> portalClass = Class.forName("maxigregrze.cobblesafari.block.dungeon.DungeonPortalBlockEntity");
@@ -126,30 +126,35 @@ public class CobbleBodeSafariEntry implements ModInitializer {
         }
     }
 
-    private static Object createTemporaryRandomDungeonPortal(ServerPlayerEntity player) throws Exception {
-        Class<?> portalClass = Class.forName("maxigregrze.cobblesafari.block.dungeon.DungeonPortalBlockEntity");
+private static Object createRealRandomDungeonPortal(ServerPlayerEntity player) throws Exception {
+    Class<?> portalClass = Class.forName("maxigregrze.cobblesafari.block.dungeon.DungeonPortalBlockEntity");
 
-        BlockPos pos = player.getBlockPos();
+    net.minecraft.server.world.ServerWorld world = player.getServerWorld();
 
-        // IMPORTANT:
-        // DungeonPortalBlockEntity validates that it was created with the correct block state.
-        // Using the player's current block state, usually air, throws:
-        // Invalid block entity cobblesafari:dungeon_portal // Block{minecraft:air}
-        Block portalBlock = Registries.BLOCK.get(Identifier.of("cobblesafari", "dungeon_portal"));
-        BlockState state = portalBlock.getDefaultState();
+    // Coloca o portal REAL acima do jogador.
+    // Isso evita criar apenas um BlockEntity fake.
+    BlockPos pos = player.getBlockPos().up(2);
 
-        Constructor<?> constructor = portalClass.getConstructor(BlockPos.class, BlockState.class);
-        Object portal = constructor.newInstance(pos, state);
+    Block portalBlock = Registries.BLOCK.get(Identifier.of("cobblesafari", "dungeon_portal"));
+    BlockState state = portalBlock.getDefaultState();
 
-        portalClass.getMethod("setPortalId", UUID.class).invoke(portal, UUID.randomUUID());
-        portalClass.getMethod("setOriginPos", BlockPos.class).invoke(portal, pos);
-        portalClass.getMethod("setOriginDimension", net.minecraft.registry.RegistryKey.class).invoke(portal, player.getWorld().getRegistryKey());
-        portalClass.getMethod("setRandomDestinationMode", boolean.class).invoke(portal, true);
-        portalClass.getMethod("setDungeonDimensionId", String.class).invoke(portal, (Object) null);
-        portalClass.getMethod("setSpawnTick", long.class).invoke(portal, player.getServerWorld().getTime());
+    world.setBlockState(pos, state, Block.NOTIFY_ALL);
 
-        return portal;
+    Object portal = world.getBlockEntity(pos);
+
+    if (portal == null || !portalClass.isInstance(portal)) {
+        throw new IllegalStateException("Não foi possível criar o portal real do CobbleSafari em " + pos);
     }
+
+    portalClass.getMethod("setPortalId", UUID.class).invoke(portal, UUID.randomUUID());
+    portalClass.getMethod("setOriginPos", BlockPos.class).invoke(portal, player.getBlockPos());
+    portalClass.getMethod("setOriginDimension", net.minecraft.registry.RegistryKey.class).invoke(portal, player.getWorld().getRegistryKey());
+    portalClass.getMethod("setRandomDestinationMode", boolean.class).invoke(portal, true);
+    portalClass.getMethod("setDungeonDimensionId", String.class).invoke(portal, (Object) null);
+    portalClass.getMethod("setSpawnTick", long.class).invoke(portal, world.getTime());
+
+    return portal;
+}
 
     private static Object forceValidationTimer(Object validation, Class<?> validationClass) throws Exception {
         Object config = validationClass.getMethod("config").invoke(validation);
