@@ -16,20 +16,12 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.UUID;
 
 public class CobbleBodeSafariEntry implements ModInitializer {
     private static final Identifier TICKET_ID = Identifier.of("cobblesafari", "ticket_dungeon");
-
-    // 15 minutos
-    private static final int DUNGEON_SECONDS = 900;
-    private static final int DUNGEON_TICKS = DUNGEON_SECONDS;
-
-    // Portal oculto fora da área normal
-    private static final BlockPos HIDDEN_PORTAL_POS = new BlockPos(-160, 57, 277);
 
     @Override
     public void onInitialize() {
@@ -83,61 +75,30 @@ public class CobbleBodeSafariEntry implements ModInitializer {
         }
 
         try {
-            Object portal = createHiddenPortal(player);
+            Object portal = createHiddenCreativeDungeonPortal(player);
 
-            Class<?> handlerClass = Class.forName("maxigregrze.cobblesafari.dungeon.DungeonTeleportHandler");
+            Class<?> acceptClass = Class.forName("maxigregrze.cobblesafari.dungeon.DungeonTpAcceptHandler");
             Class<?> portalClass = Class.forName("maxigregrze.cobblesafari.block.dungeon.DungeonPortalBlockEntity");
-            Class<?> validationClass = Class.forName("maxigregrze.cobblesafari.dungeon.DungeonTeleportHandler$DungeonValidationResult");
-            Class<?> prepClass = Class.forName("maxigregrze.cobblesafari.dungeon.DungeonTeleportHandler$DungeonPrepResult");
 
-            Method validate = handlerClass.getMethod("validateDungeonEntry", ServerPlayerEntity.class, portalClass);
-            Object validation = validate.invoke(null, player, portal);
-
-            if (validation == null) {
-                removeHiddenPortal(player);
-                giveItem(player, TICKET_ID, 1);
-                player.sendMessage(Text.literal("§cNão foi possível validar a entrada da Mina Safari. O ticket foi devolvido."), false);
-                return false;
-            }
-
-            Object forcedValidation = forceValidationTimer(validation, validationClass);
-
-            Method generateAndPrepare = handlerClass.getMethod(
-                    "generateAndPrepareDungeon",
+            Method open = acceptClass.getMethod(
+                    "openTpAcceptForDungeon",
                     ServerPlayerEntity.class,
-                    portalClass,
-                    validationClass
+                    portalClass
             );
 
-            Object prep = generateAndPrepare.invoke(null, player, portal, forcedValidation);
-
-            if (prep == null) {
-                removeHiddenPortal(player);
-                giveItem(player, TICKET_ID, 1);
-                player.sendMessage(Text.literal("§cNão foi possível gerar a Mina Safari. O ticket foi devolvido."), false);
-                return false;
-            }
-
-            Object forcedPrep = forcePrepTimer(prep, prepClass);
-
-            Method execute = handlerClass.getMethod(
-                    "executeDungeonTeleport",
+            Method accept = acceptClass.getMethod(
+                    "handleAcceptResponse",
                     ServerPlayerEntity.class,
-                    portalClass,
-                    prepClass
+                    boolean.class
             );
 
-            execute.invoke(null, player, portal, forcedPrep);
-
-            // NÃO remover o portal agora.
-            // O CobbleSafari precisa dele registrado para não evacuar o player.
-            // removeHiddenPortal(player);
+            open.invoke(null, player, portal);
+            accept.invoke(null, player, true);
 
             player.sendMessage(Text.literal("§aTicket consumido! Você entrou na Mina Safari por 15 minutos."), false);
             return true;
 
         } catch (Throwable t) {
-            removeHiddenPortal(player);
             giveItem(player, TICKET_ID, 1);
             player.sendMessage(Text.literal("§cErro ao abrir a Mina Safari. O ticket foi devolvido."), false);
             player.sendMessage(Text.literal("§7Debug: " + t.getClass().getSimpleName() + " - " + safeMsg(t)), false);
@@ -145,98 +106,46 @@ public class CobbleBodeSafariEntry implements ModInitializer {
         }
     }
 
-    private static Object createHiddenPortal(ServerPlayerEntity player) throws Exception {
+    private static Object createHiddenCreativeDungeonPortal(ServerPlayerEntity player) throws Exception {
         Class<?> portalClass = Class.forName("maxigregrze.cobblesafari.block.dungeon.DungeonPortalBlockEntity");
 
         var world = player.getServerWorld();
 
-        Block portalBlock = Registries.BLOCK.get(Identifier.of("cobblesafari", "dungeon_portal"));
+        BlockPos pos = getHiddenPortalPos(player);
+
+        Block portalBlock = Registries.BLOCK.get(Identifier.of("cobblesafari", "creative_dungeon_portal"));
         BlockState state = portalBlock.getDefaultState();
 
-        world.setBlockState(HIDDEN_PORTAL_POS, state, Block.NOTIFY_ALL);
+        world.setBlockState(pos, state, Block.NOTIFY_ALL);
 
-        Object portal = world.getBlockEntity(HIDDEN_PORTAL_POS);
+        Object portal = world.getBlockEntity(pos);
 
         if (portal == null || !portalClass.isInstance(portal)) {
-            throw new IllegalStateException("Falha ao criar portal oculto do CobbleSafari");
+            throw new IllegalStateException("Falha ao criar o portal oculto do CobbleSafari em " + pos);
         }
 
         portalClass.getMethod("setPortalId", UUID.class).invoke(portal, UUID.randomUUID());
         portalClass.getMethod("setOriginPos", BlockPos.class).invoke(portal, player.getBlockPos());
         portalClass.getMethod("setOriginDimension", net.minecraft.registry.RegistryKey.class).invoke(portal, player.getWorld().getRegistryKey());
+
         portalClass.getMethod("setRandomDestinationMode", boolean.class).invoke(portal, true);
+        portalClass.getMethod("setAutoRenewPortal", boolean.class).invoke(portal, true);
+
         portalClass.getMethod("setDungeonDimensionId", String.class).invoke(portal, (Object) null);
+        portalClass.getMethod("setFixedDungeonId", String.class).invoke(portal, (Object) null);
+
         portalClass.getMethod("setSpawnTick", long.class).invoke(portal, world.getTime());
 
         return portal;
     }
 
-    private static void removeHiddenPortal(ServerPlayerEntity player) {
-        try {
-            player.getServerWorld().breakBlock(HIDDEN_PORTAL_POS, false);
-        } catch (Throwable ignored) {
-        }
-    }
+    private static BlockPos getHiddenPortalPos(ServerPlayerEntity player) {
+        int hash = Math.abs(player.getUuid().hashCode());
 
-    private static Object forceValidationTimer(Object validation, Class<?> validationClass) throws Exception {
-        Object config = validationClass.getMethod("config").invoke(validation);
-        Object dungeonLevel = validationClass.getMethod("dungeonLevel").invoke(validation);
-        Object dimensionId = validationClass.getMethod("dimensionId").invoke(validation);
-        Object isReEntry = validationClass.getMethod("isReEntry").invoke(validation);
-        Object playerOriginPos = validationClass.getMethod("playerOriginPos").invoke(validation);
-        Object playerOriginDimension = validationClass.getMethod("playerOriginDimension").invoke(validation);
+        int x = 30_000_000 - (hash % 1000);
+        int z = 30_000_000 - ((hash / 1000) % 1000);
 
-        Constructor<?> c = validationClass.getConstructor(
-                Class.forName("maxigregrze.cobblesafari.dungeon.DungeonConfig"),
-                net.minecraft.server.world.ServerWorld.class,
-                String.class,
-                boolean.class,
-                int.class,
-                BlockPos.class,
-                net.minecraft.registry.RegistryKey.class
-        );
-
-        return c.newInstance(
-                config,
-                dungeonLevel,
-                dimensionId,
-                isReEntry,
-                DUNGEON_TICKS,
-                playerOriginPos,
-                playerOriginDimension
-        );
-    }
-
-    private static Object forcePrepTimer(Object prep, Class<?> prepClass) throws Exception {
-        Object dungeonLevel = prepClass.getMethod("dungeonLevel").invoke(prep);
-        Object playerSpawnPos = prepClass.getMethod("playerSpawnPos").invoke(prep);
-        Object playerYaw = prepClass.getMethod("playerYaw").invoke(prep);
-        Object dimensionId = prepClass.getMethod("dimensionId").invoke(prep);
-        Object isReEntry = prepClass.getMethod("isReEntry").invoke(prep);
-        Object playerOriginPos = prepClass.getMethod("playerOriginPos").invoke(prep);
-        Object playerOriginDimension = prepClass.getMethod("playerOriginDimension").invoke(prep);
-
-        Constructor<?> c = prepClass.getConstructor(
-                net.minecraft.server.world.ServerWorld.class,
-                BlockPos.class,
-                float.class,
-                String.class,
-                boolean.class,
-                int.class,
-                BlockPos.class,
-                net.minecraft.registry.RegistryKey.class
-        );
-
-        return c.newInstance(
-                dungeonLevel,
-                playerSpawnPos,
-                playerYaw,
-                dimensionId,
-                isReEntry,
-                DUNGEON_TICKS,
-                playerOriginPos,
-                playerOriginDimension
-        );
+        return new BlockPos(x, -60, z);
     }
 
     private static boolean hasItem(ServerPlayerEntity player, Identifier itemId) {
