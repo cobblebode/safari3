@@ -26,7 +26,7 @@ public class CobbleBodeSafariEntry implements ModInitializer {
 
     // 15 minutos
     private static final int DUNGEON_SECONDS = 900;
-    private static final int DUNGEON_TICKS = DUNGEON_SECONDS * 20;
+    private static final int DUNGEON_TICKS = DUNGEON_SECONDS;
 
     // Portal oculto fora da área normal
     private static final BlockPos HIDDEN_PORTAL_POS = new BlockPos(-160, 57, 277);
