@@ -19,7 +19,6 @@ import net.minecraft.util.math.BlockPos;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.Collection;
-import java.util.List;
 import java.util.UUID;
 
 public class CobbleBodeSafariEntry implements ModInitializer {
@@ -109,10 +108,12 @@ public class CobbleBodeSafariEntry implements ModInitializer {
 
             Method execute = handlerClass.getMethod("executeDungeonTeleport", ServerPlayerEntity.class, portalClass, prepClass);
             execute.invoke(null, player, portal, forcedPrep);
-
-            // Force timer again after teleport, because CobbleSafari default config is 900s.
+            
             String dimensionId = (String) prepClass.getMethod("dimensionId").invoke(forcedPrep);
-            setDungeonTimer(player, dimensionId, DUNGEON_TICKS);
+            
+            // Não força TimerManager manualmente.
+            // Deixa o CobbleSafari controlar a dungeon/timer,
+            // senão ele pode achar que o player está em uma dungeon inexistente.
             markEntryFeePaid(player, dimensionId);
 
             player.sendMessage(Text.literal("§aTicket consumido! Você entrou na Mina Safari por 30 minutos."), false);
@@ -192,28 +193,6 @@ public class CobbleBodeSafariEntry implements ModInitializer {
         );
 
         return c.newInstance(dungeonLevel, playerSpawnPos, playerYaw, dimensionId, isReEntry, DUNGEON_TICKS, playerOriginPos, playerOriginDimension);
-    }
-
-    private static void setDungeonTimer(ServerPlayerEntity player, String dimensionId, int ticks) {
-        try {
-            Class<?> timerManager = Class.forName("maxigregrze.cobblesafari.manager.TimerManager");
-            Method getOrCreateData = timerManager.getMethod("getOrCreateData", ServerPlayerEntity.class, String.class);
-            Object data = getOrCreateData.invoke(null, player, dimensionId);
-
-            data.getClass().getMethod("setRemainingTicks", int.class).invoke(data, ticks);
-            data.getClass().getMethod("setActive", boolean.class).invoke(data, true);
-            try {
-                data.getClass().getMethod("setNeedsEvacuation", boolean.class).invoke(data, false);
-            } catch (NoSuchMethodException ignored) {}
-
-            try {
-                timerManager.getMethod("savePlayerData", ServerPlayerEntity.class, data.getClass()).invoke(null, player, data);
-            } catch (Throwable ignored) {}
-
-            try {
-                timerManager.getMethod("syncToClient", ServerPlayerEntity.class, data.getClass()).invoke(null, player, data);
-            } catch (Throwable ignored) {}
-        } catch (Throwable ignored) {}
     }
 
     private static void markEntryFeePaid(ServerPlayerEntity player, String dimensionId) {
