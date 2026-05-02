@@ -29,7 +29,7 @@ public class CobbleBodeSafariEntry implements ModInitializer {
     private static final int DUNGEON_TICKS = DUNGEON_SECONDS * 20;
 
     // Portal oculto fora da área normal
-    private static final BlockPos HIDDEN_PORTAL_POS = new BlockPos(0, -60, 0);
+    private static final BlockPos HIDDEN_PORTAL_POS = new BlockPos(-160, 57, 277);
 
     @Override
     public void onInitialize() {
