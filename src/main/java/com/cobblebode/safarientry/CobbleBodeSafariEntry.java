@@ -5,6 +5,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.command.argument.EntityArgumentType;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -22,7 +23,6 @@ import java.util.Collection;
 import java.util.UUID;
 
 public class CobbleBodeSafariEntry implements ModInitializer {
-
     private static final Identifier TICKET_ID = Identifier.of("cobblesafari", "ticket_dungeon");
 
     private static final int DUNGEON_SECONDS = 900;
@@ -80,7 +80,7 @@ public class CobbleBodeSafariEntry implements ModInitializer {
         }
 
         try {
-            Object portal = createHiddenCreativeDungeonPortal(player);
+            Object portal = createFreshHiddenCreativeDungeonPortal(player);
 
             Class<?> handlerClass = Class.forName("maxigregrze.cobblesafari.dungeon.DungeonTeleportHandler");
             Class<?> portalClass = Class.forName("maxigregrze.cobblesafari.block.dungeon.DungeonPortalBlockEntity");
@@ -135,7 +135,7 @@ public class CobbleBodeSafariEntry implements ModInitializer {
         }
     }
 
-    private static Object createHiddenCreativeDungeonPortal(ServerPlayerEntity player) throws Exception {
+    private static Object createFreshHiddenCreativeDungeonPortal(ServerPlayerEntity player) throws Exception {
         Class<?> portalClass = Class.forName("maxigregrze.cobblesafari.block.dungeon.DungeonPortalBlockEntity");
 
         var world = player.getServerWorld();
@@ -144,17 +144,12 @@ public class CobbleBodeSafariEntry implements ModInitializer {
         Block portalBlock = Registries.BLOCK.get(Identifier.of("cobblesafari", "creative_dungeon_portal"));
         BlockState state = portalBlock.getDefaultState();
 
+        // LIMPA QUALQUER PORTAL ANTIGO / BLOCKENTITY ANTIGO NESSA POSIÇÃO
+        world.breakBlock(pos, false);
+        world.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
+
+        // CRIA UM PORTAL NOVO E LIMPO
         world.setBlockState(pos, state, Block.NOTIFY_ALL);
-
-        Class<?> portalSpawnManager = Class.forName("maxigregrze.cobblesafari.dungeon.PortalSpawnManager");
-
-        boolean registered = (boolean) portalSpawnManager
-                .getMethod("registerCreativePortal", net.minecraft.server.world.ServerWorld.class, BlockPos.class)
-                .invoke(null, world, pos);
-
-        if (!registered) {
-            throw new IllegalStateException("Falha ao registrar portal oculto no PortalSpawnManager");
-        }
 
         Object portal = world.getBlockEntity(pos);
 
@@ -173,6 +168,15 @@ public class CobbleBodeSafariEntry implements ModInitializer {
         portalClass.getMethod("setFixedDungeonId", String.class).invoke(portal, (Object) null);
 
         portalClass.getMethod("setSpawnTick", long.class).invoke(portal, world.getTime());
+
+        try {
+            Class<?> portalSpawnManager = Class.forName("maxigregrze.cobblesafari.dungeon.PortalSpawnManager");
+
+            portalSpawnManager
+                    .getMethod("registerCreativePortal", net.minecraft.server.world.ServerWorld.class, BlockPos.class)
+                    .invoke(null, world, pos);
+        } catch (Throwable ignored) {
+        }
 
         return portal;
     }
